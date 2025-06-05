@@ -278,9 +278,10 @@ return {
   {
     "abonckus/al.nvim",
     ft = "al",
+    -- Make sure this is loaded on startup
+    lazy = false,
     dependencies = {
       "MunifTanjim/nui.nvim",
-      "saghen/blink.cmp",
     },
     opts = {
       workspace = {
@@ -361,11 +362,10 @@ return {
     "folke/which-key.nvim",
     opts = {
       spec = {
-        { "<leader>a", group = "AL Development" },
-        { "<leader>ab", "<cmd>AL build<cr>", desc = "Build AL Package" },
-        { "<leader>as", "<cmd>AL downloadSymbols<cr>", desc = "Download Symbols" },
-        { "<leader>ac", "<cmd>AL clearCredentialsCache<cr>", desc = "Clear Credentials" },
-        { "<leader>al", "<cmd>AL lsp<cr>", desc = "LSP Info" },
+        { "<leader>a", group = "AL Development", icon = "AL" },
+        { "<leader>ab", "<cmd>AL build<cr>", desc = "Build AL Package", icon = "AL" },
+        { "<leader>as", "<cmd>AL downloadSymbols<cr>", desc = "Download Symbols", icon = "AL" },
+        { "<leader>ac", "<cmd>AL clearCredentialsCache<cr>", desc = "Clear Credentials", icon = "AL" },
       },
     },
   },
