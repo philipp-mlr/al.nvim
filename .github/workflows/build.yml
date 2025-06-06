@@ -85,8 +85,6 @@ jobs:
                   cp -r bin/ dist/
                   cp README.md dist/
                   cp DEBUGGING.md dist/
-                  cp stylua.toml dist/
-                  cp selene.toml dist/
                   cp vim.toml dist/
 
                   # Create version info
