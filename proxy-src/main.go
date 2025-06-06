@@ -91,27 +91,27 @@ func main() {
 // handleInput processes input from stdin and forwards to the process
 func handleInput(writer io.WriteCloser) {
 	defer writer.Close()
-	
+
 	// Read all data and process it as a stream, similar to handleOutput
 	buffer := make([]byte, 4096)
 	var accumulated []byte
-	
+
 	for {
 		n, err := os.Stdin.Read(buffer)
 		if n > 0 {
 			accumulated = append(accumulated, buffer[:n]...)
-			
+
 			// Process complete messages from accumulated data
 			for {
 				processed, remaining := processInputBuffer(accumulated, writer)
 				if processed == nil {
 					break // No complete message found
 				}
-				
+
 				accumulated = remaining
 			}
 		}
-		
+
 		if err != nil {
 			if err == io.EOF {
 				// Forward any remaining data
@@ -128,7 +128,7 @@ func handleInput(writer io.WriteCloser) {
 // processInputBuffer looks for complete DAP messages in the input buffer and processes them
 func processInputBuffer(data []byte, writer io.WriteCloser) (processed []byte, remaining []byte) {
 	dataStr := string(data)
-	
+
 	// Look for Content-Length header
 	contentLengthPrefix := "Content-Length: "
 	idx := strings.Index(dataStr, contentLengthPrefix)
@@ -140,14 +140,14 @@ func processInputBuffer(data []byte, writer io.WriteCloser) (processed []byte, r
 		}
 		return nil, data // Wait for more data
 	}
-	
+
 	// Parse content length
 	headerEnd := strings.Index(dataStr[idx:], "\n")
 	if headerEnd == -1 {
 		return nil, data // Wait for complete header
 	}
 	headerEnd += idx
-	
+
 	lengthStr := strings.TrimSpace(dataStr[idx+len(contentLengthPrefix) : headerEnd])
 	contentLength := 0
 	if _, err := fmt.Sscanf(lengthStr, "%d", &contentLength); err != nil {
@@ -155,7 +155,7 @@ func processInputBuffer(data []byte, writer io.WriteCloser) (processed []byte, r
 		writer.Write(data[:headerEnd+1])
 		return data[:headerEnd+1], data[headerEnd+1:]
 	}
-	
+
 	// Find the start of JSON content (after the empty line)
 	jsonStart := strings.Index(dataStr[headerEnd:], "\n\n")
 	if jsonStart == -1 {
@@ -167,32 +167,32 @@ func processInputBuffer(data []byte, writer io.WriteCloser) (processed []byte, r
 	} else {
 		jsonStart += headerEnd + 2
 	}
-	
+
 	// Check if we have the complete JSON content
 	if len(data) < jsonStart+contentLength {
 		return nil, data // Wait for complete message
 	}
-	
+
 	// Extract and check the JSON content for terminate command
 	jsonContent := string(data[jsonStart : jsonStart+contentLength])
 	checkForTerminate(jsonContent)
-	
+
 	// Forward the complete message unchanged
 	messageEnd := jsonStart + contentLength
 	writer.Write(data[:messageEnd])
-	
+
 	return data[:messageEnd], data[messageEnd:]
 }
 
 // checkForTerminate checks if the message is a terminate request
 func checkForTerminate(jsonContent string) {
 	var msg DAPMessage
-	
+
 	// Try to parse the JSON
 	if err := json.Unmarshal([]byte(jsonContent), &msg); err != nil {
 		return // If parsing fails, ignore
 	}
-	
+
 	// Check if this is a terminate request
 	if msg.Type == "request" && msg.Command == "terminate" {
 		// Signal termination
@@ -207,29 +207,29 @@ func checkForTerminate(jsonContent string) {
 // handleOutput processes output from the process and forwards to stdout
 func handleOutput(reader io.ReadCloser) {
 	defer reader.Close()
-	
+
 	// Simple approach: read all data and process it as a stream
 	buffer := make([]byte, 4096)
 	var accumulated []byte
-	
+
 	for {
 		n, err := reader.Read(buffer)
 		if n > 0 {
 			accumulated = append(accumulated, buffer[:n]...)
-			
+
 			// Process complete messages from accumulated data
 			for {
 				processed, remaining := processBuffer(accumulated)
 				if processed == nil {
 					break // No complete message found
 				}
-				
+
 				// Output the processed message
 				os.Stdout.Write(processed)
 				accumulated = remaining
 			}
 		}
-		
+
 		if err != nil {
 			if err == io.EOF {
 				// Output any remaining data
@@ -246,7 +246,7 @@ func handleOutput(reader io.ReadCloser) {
 // processBuffer looks for complete DAP messages in the buffer and processes them
 func processBuffer(data []byte) (processed []byte, remaining []byte) {
 	dataStr := string(data)
-	
+
 	// Look for Content-Length header
 	contentLengthPrefix := "Content-Length: "
 	idx := strings.Index(dataStr, contentLengthPrefix)
@@ -257,7 +257,7 @@ func processBuffer(data []byte) (processed []byte, remaining []byte) {
 		}
 		return nil, data // Wait for more data
 	}
-	
+
 	// Parse content length
 	headerStart := idx
 	headerEnd := strings.Index(dataStr[idx:], "\n")
@@ -265,14 +265,14 @@ func processBuffer(data []byte) (processed []byte, remaining []byte) {
 		return nil, data // Wait for complete header
 	}
 	headerEnd += idx
-	
+
 	lengthStr := strings.TrimSpace(dataStr[idx+len(contentLengthPrefix) : headerEnd])
 	contentLength := 0
 	if _, err := fmt.Sscanf(lengthStr, "%d", &contentLength); err != nil {
 		// Can't parse length, return up to this point
 		return data[:headerEnd+1], data[headerEnd+1:]
 	}
-	
+
 	// Find the start of JSON content (after the empty line)
 	jsonStart := strings.Index(dataStr[headerEnd:], "\n\n")
 	if jsonStart == -1 {
@@ -284,16 +284,16 @@ func processBuffer(data []byte) (processed []byte, remaining []byte) {
 	} else {
 		jsonStart += headerEnd + 2
 	}
-	
+
 	// Check if we have the complete JSON content
 	if len(data) < jsonStart+contentLength {
 		return nil, data // Wait for complete message
 	}
-	
+
 	// Extract and process the JSON content
 	jsonContent := string(data[jsonStart : jsonStart+contentLength])
 	modifiedContent := processMessage(jsonContent)
-	
+
 	// Build the complete message
 	var result []byte
 	if modifiedContent != jsonContent {
@@ -305,20 +305,20 @@ func processBuffer(data []byte) (processed []byte, remaining []byte) {
 		// Content unchanged, return original
 		result = append(result, data[:jsonStart+contentLength]...)
 	}
-	
+
 	return result, data[jsonStart+contentLength:]
 }
 
 // processMessage checks if the message matches our target response and modifies it
 func processMessage(jsonContent string) string {
 	var msg DAPMessage
-	
+
 	// Try to parse the JSON
 	if err := json.Unmarshal([]byte(jsonContent), &msg); err != nil {
 		// If parsing fails, return original content
 		return jsonContent
 	}
-	
+
 	// Check if this matches our target response pattern:
 	// - Must be a response type
 	// - Must be successful
@@ -327,13 +327,13 @@ func processMessage(jsonContent string) string {
 	if msg.Type == "response" && msg.Success != nil && *msg.Success && msg.RequestSeq != nil && msg.Command == "" {
 		// Add the command field only if it's not already set
 		msg.Command = "empty"
-		
+
 		// Marshal back to JSON
 		if modifiedJSON, err := json.Marshal(msg); err == nil {
 			return string(modifiedJSON)
 		}
 	}
-	
+
 	// Return original content if:
 	// - No modification needed (doesn't match pattern)
 	// - Already has a command set (forward as-is)
