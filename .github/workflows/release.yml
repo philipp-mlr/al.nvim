@@ -209,8 +209,6 @@ jobs:
                   cp -r bin/ release/
                   cp README.md release/
                   cp DEBUGGING.md release/
-                  cp stylua.toml release/
-                  cp selene.toml release/
                   cp vim.toml release/
 
                   # Create version info
