@@ -1,3 +1,6 @@
+// Package main implements a debug adapter protocol proxy for AL language server.
+// This proxy intercepts DAP messages between the client and AL EditorServices,
+// modifying responses to ensure proper command field handling.
 package main
 
 import (
@@ -9,6 +12,17 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+)
+
+// Constants for magic numbers and repeated strings
+const (
+	bufferSize          = 4096
+	minArgsRequired     = 2
+	contentLengthPrefix = "Content-Length: "
+	headerSeparatorLF   = "\n\n"
+	headerSeparatorCRLF = "\n\r\n"
+	separatorLFLength   = 2
+	separatorCRLFLength = 3
 )
 
 // DAPMessage represents a Debug Adapter Protocol message
@@ -25,12 +39,13 @@ var terminateSignal = make(chan bool, 1)
 
 func main() {
 	// Check if we have arguments to pass to dotnet
-	if len(os.Args) < 2 {
+	if len(os.Args) < minArgsRequired {
 		os.Exit(1)
 	}
 
 	// Prepare the command: dotnet + all arguments passed to this proxy
 	args := append([]string{"dotnet"}, os.Args[1:]...)
+	// #nosec G204 - Command arguments are intentionally passed from command line
 	cmd := exec.Command(args[0], args[1:]...)
 
 	// Create pipes for communication
@@ -60,7 +75,7 @@ func main() {
 	go func() {
 		<-sigChan
 		if cmd.Process != nil {
-			cmd.Process.Kill()
+			_ = cmd.Process.Kill() // Ignore error as process may have already exited
 		}
 		os.Exit(0)
 	}()
@@ -72,7 +87,7 @@ func main() {
 	// Wait for either the AL EditorServices process to complete or termination signal
 	done := make(chan bool)
 	go func() {
-		cmd.Wait()
+		_ = cmd.Wait() // Ignore error, we just need to know when process completes
 		done <- true
 	}()
 
@@ -83,7 +98,7 @@ func main() {
 		// Received terminate command, give a moment for any final responses
 		// then exit gracefully
 		if cmd.Process != nil {
-			cmd.Process.Kill()
+			_ = cmd.Process.Kill() // Ignore error as process may have already exited
 		}
 	}
 }
@@ -93,7 +108,7 @@ func handleInput(writer io.WriteCloser) {
 	defer writer.Close()
 
 	// Read all data and process it as a stream, similar to handleOutput
-	buffer := make([]byte, 4096)
+	buffer := make([]byte, bufferSize)
 	var accumulated []byte
 
 	for {
@@ -116,7 +131,10 @@ func handleInput(writer io.WriteCloser) {
 			if err == io.EOF {
 				// Forward any remaining data
 				if len(accumulated) > 0 {
-					writer.Write(accumulated)
+					if _, writeErr := writer.Write(accumulated); writeErr != nil {
+						// Error writing to pipe, connection may be closed
+						break
+					}
 				}
 				break
 			}
@@ -126,16 +144,18 @@ func handleInput(writer io.WriteCloser) {
 }
 
 // processInputBuffer looks for complete DAP messages in the input buffer and processes them
-func processInputBuffer(data []byte, writer io.WriteCloser) (processed []byte, remaining []byte) {
+func processInputBuffer(data []byte, writer io.WriteCloser) (processed, remaining []byte) {
 	dataStr := string(data)
 
 	// Look for Content-Length header
-	contentLengthPrefix := "Content-Length: "
 	idx := strings.Index(dataStr, contentLengthPrefix)
 	if idx == -1 {
 		// No Content-Length found, return first part as-is if we have a complete line
 		if newlineIdx := strings.Index(dataStr, "\n"); newlineIdx != -1 {
-			writer.Write(data[:newlineIdx+1])
+			if _, err := writer.Write(data[:newlineIdx+1]); err != nil {
+				// Error writing to pipe, connection may be closed
+				return data[:newlineIdx+1], data[newlineIdx+1:]
+			}
 			return data[:newlineIdx+1], data[newlineIdx+1:]
 		}
 		return nil, data // Wait for more data
@@ -152,20 +172,20 @@ func processInputBuffer(data []byte, writer io.WriteCloser) (processed []byte, r
 	contentLength := 0
 	if _, err := fmt.Sscanf(lengthStr, "%d", &contentLength); err != nil {
 		// Can't parse length, forward up to this point
-		writer.Write(data[:headerEnd+1])
+		_, _ = writer.Write(data[:headerEnd+1]) // Ignore write errors, connection may be closed
 		return data[:headerEnd+1], data[headerEnd+1:]
 	}
 
 	// Find the start of JSON content (after the empty line)
-	jsonStart := strings.Index(dataStr[headerEnd:], "\n\n")
+	jsonStart := strings.Index(dataStr[headerEnd:], headerSeparatorLF)
 	if jsonStart == -1 {
-		jsonStart = strings.Index(dataStr[headerEnd:], "\n\r\n")
+		jsonStart = strings.Index(dataStr[headerEnd:], headerSeparatorCRLF)
 		if jsonStart == -1 {
 			return nil, data // Wait for complete separator
 		}
-		jsonStart += headerEnd + 3
+		jsonStart += headerEnd + separatorCRLFLength
 	} else {
-		jsonStart += headerEnd + 2
+		jsonStart += headerEnd + separatorLFLength
 	}
 
 	// Check if we have the complete JSON content
@@ -179,7 +199,7 @@ func processInputBuffer(data []byte, writer io.WriteCloser) (processed []byte, r
 
 	// Forward the complete message unchanged
 	messageEnd := jsonStart + contentLength
-	writer.Write(data[:messageEnd])
+	_, _ = writer.Write(data[:messageEnd]) // Ignore write errors, connection may be closed
 
 	return data[:messageEnd], data[messageEnd:]
 }
@@ -209,7 +229,7 @@ func handleOutput(reader io.ReadCloser) {
 	defer reader.Close()
 
 	// Simple approach: read all data and process it as a stream
-	buffer := make([]byte, 4096)
+	buffer := make([]byte, bufferSize)
 	var accumulated []byte
 
 	for {
@@ -225,6 +245,7 @@ func handleOutput(reader io.ReadCloser) {
 				}
 
 				// Output the processed message
+				// #nosec G104 - stdout write errors are not critical for proxy operation
 				os.Stdout.Write(processed)
 				accumulated = remaining
 			}
@@ -234,6 +255,7 @@ func handleOutput(reader io.ReadCloser) {
 			if err == io.EOF {
 				// Output any remaining data
 				if len(accumulated) > 0 {
+					// #nosec G104 - stdout write errors are not critical for proxy operation
 					os.Stdout.Write(accumulated)
 				}
 				break
@@ -244,11 +266,10 @@ func handleOutput(reader io.ReadCloser) {
 }
 
 // processBuffer looks for complete DAP messages in the buffer and processes them
-func processBuffer(data []byte) (processed []byte, remaining []byte) {
+func processBuffer(data []byte) (processed, remaining []byte) {
 	dataStr := string(data)
 
 	// Look for Content-Length header
-	contentLengthPrefix := "Content-Length: "
 	idx := strings.Index(dataStr, contentLengthPrefix)
 	if idx == -1 {
 		// No Content-Length found, return first part as-is if we have a complete line
@@ -274,15 +295,15 @@ func processBuffer(data []byte) (processed []byte, remaining []byte) {
 	}
 
 	// Find the start of JSON content (after the empty line)
-	jsonStart := strings.Index(dataStr[headerEnd:], "\n\n")
+	jsonStart := strings.Index(dataStr[headerEnd:], headerSeparatorLF)
 	if jsonStart == -1 {
-		jsonStart = strings.Index(dataStr[headerEnd:], "\n\r\n")
+		jsonStart = strings.Index(dataStr[headerEnd:], headerSeparatorCRLF)
 		if jsonStart == -1 {
 			return nil, data // Wait for complete separator
 		}
-		jsonStart += headerEnd + 3
+		jsonStart += headerEnd + separatorCRLFLength
 	} else {
-		jsonStart += headerEnd + 2
+		jsonStart += headerEnd + separatorLFLength
 	}
 
 	// Check if we have the complete JSON content
