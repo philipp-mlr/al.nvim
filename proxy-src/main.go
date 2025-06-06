@@ -104,8 +104,8 @@ func main() {
 }
 
 // handleInput processes input from stdin and forwards to the process
-func handleInput(io.writer io.WriteCloser) {
-	defer io.writer.Close()
+func handleInput(writer io.WriteCloser) {
+	defer writer.Close()
 
 	// Read all data and process it as a stream, similar to handleOutput
 	buffer := make([]byte, bufferSize)
@@ -118,7 +118,7 @@ func handleInput(io.writer io.WriteCloser) {
 
 			// Process complete messages from accumulated data
 			for {
-				processed, remaining := processInputBuffer(accumulated, io.writer)
+				processed, remaining := processInputBuffer(accumulated, writer)
 				if processed == nil {
 					break // No complete message found
 				}
@@ -131,7 +131,7 @@ func handleInput(io.writer io.WriteCloser) {
 			if err == io.EOF {
 				// Forward any remaining data
 				if len(accumulated) > 0 {
-					if _, writeErr := io.writer.Write(accumulated); writeErr != nil {
+					if _, writeErr := writer.Write(accumulated); writeErr != nil {
 						// Error writing to pipe, connection may be closed
 						break
 					}
@@ -144,7 +144,7 @@ func handleInput(io.writer io.WriteCloser) {
 }
 
 // processInputBuffer looks for complete DAP messages in the input buffer and processes them
-func processInputBuffer(data []byte, io.writer io.WriteCloser) (processed, remaining []byte) {
+func processInputBuffer(data []byte, writer io.WriteCloser) (processed, remaining []byte) {
 	dataStr := string(data)
 
 	// Look for Content-Length header
@@ -152,7 +152,7 @@ func processInputBuffer(data []byte, io.writer io.WriteCloser) (processed, remai
 	if idx == -1 {
 		// No Content-Length found, return first part as-is if we have a complete line
 		if newlineIdx := strings.Index(dataStr, "\n"); newlineIdx != -1 {
-			if _, err := io.writer.Write(data[:newlineIdx+1]); err != nil {
+			if _, err := writer.Write(data[:newlineIdx+1]); err != nil {
 				// Error writing to pipe, connection may be closed
 				return data[:newlineIdx+1], data[newlineIdx+1:]
 			}
@@ -172,7 +172,7 @@ func processInputBuffer(data []byte, io.writer io.WriteCloser) (processed, remai
 	contentLength := 0
 	if _, err := fmt.Sscanf(lengthStr, "%d", &contentLength); err != nil {
 		// Can't parse length, forward up to this point
-		_, _ = io.writer.Write(data[:headerEnd+1]) // Ignore write errors, connection may be closed
+		_, _ = writer.Write(data[:headerEnd+1]) // Ignore write errors, connection may be closed
 		return data[:headerEnd+1], data[headerEnd+1:]
 	}
 
@@ -199,7 +199,9 @@ func processInputBuffer(data []byte, io.writer io.WriteCloser) (processed, remai
 
 	// Forward the complete message unchanged
 	messageEnd := jsonStart + contentLength
-	_, _ = io.writer.Write(data[:messageEnd]) // Ignore write errors, connection may be closed
+	if _, err := writer.Write(data[:messageEnd]); err != nil {
+		// Error writing to pipe, connection may be closed
+	}
 
 	return data[:messageEnd], data[messageEnd:]
 }
