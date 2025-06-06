@@ -1,16 +1,21 @@
-name: Build AL Debug Proxy
+# DEPRECATED: This workflow has been replaced by the comprehensive CI/CD pipeline
+# - CI workflow (.github/workflows/ci.yml) handles quality checks
+# - Build workflow (.github/workflows/build.yml) handles building and packaging
+# - Release workflow (.github/workflows/release.yml) handles releases
+#
+# This file is kept for reference but should not be used.
+
+name: "[DEPRECATED] Build AL Debug Proxy"
 
 on:
-    push:
-        branches: [main, master]
-        paths:
-            - "proxy-src/**"
-    pull_request:
-        branches: [main, master]
-        paths:
-            - "proxy-src/**"
-    release:
-        types: [published]
+    # Disabled - use the new pipeline instead
+    workflow_dispatch:
+        inputs:
+            force_run:
+                description: "Force run deprecated workflow (not recommended)"
+                required: false
+                default: false
+                type: boolean
 
 jobs:
     build:

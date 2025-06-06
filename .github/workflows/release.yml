@@ -1,0 +1,326 @@
+name: Release
+
+on:
+    workflow_dispatch:
+        inputs:
+            version_type:
+                description: "Version bump type"
+                required: true
+                default: "patch"
+                type: choice
+                options:
+                    - patch
+                    - minor
+                    - major
+            custom_version:
+                description: "Custom version (optional, overrides version_type)"
+                required: false
+                type: string
+            prerelease:
+                description: "Mark as pre-release"
+                required: false
+                default: false
+                type: boolean
+            draft:
+                description: "Create as draft release"
+                required: false
+                default: false
+                type: boolean
+
+jobs:
+    prepare-release:
+        name: Prepare Release
+        runs-on: ubuntu-latest
+        outputs:
+            version: ${{ steps.version.outputs.version }}
+            changelog: ${{ steps.changelog.outputs.changelog }}
+            tag_name: ${{ steps.version.outputs.tag_name }}
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+              with:
+                  fetch-depth: 0
+
+            - name: Setup Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: "20"
+
+            - name: Install semantic-release tools
+              run: |
+                  npm install -g conventional-changelog-cli
+                  npm install -g semver
+
+            - name: Get latest tag
+              id: latest_tag
+              run: |
+                  # Get the latest tag, or use v0.0.0 if no tags exist
+                  LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+                  echo "latest_tag=$LATEST_TAG" >> $GITHUB_OUTPUT
+                  echo "Latest tag: $LATEST_TAG"
+
+            - name: Calculate next version
+              id: version
+              run: |
+                  LATEST_TAG="${{ steps.latest_tag.outputs.latest_tag }}"
+                  CURRENT_VERSION=${LATEST_TAG#v}
+
+                  if [ -n "${{ github.event.inputs.custom_version }}" ]; then
+                      # Use custom version if provided
+                      NEW_VERSION="${{ github.event.inputs.custom_version }}"
+                      # Remove 'v' prefix if present
+                      NEW_VERSION=${NEW_VERSION#v}
+                  else
+                      # Calculate version bump
+                      case "${{ github.event.inputs.version_type }}" in
+                          "major")
+                              NEW_VERSION=$(npx semver -i major $CURRENT_VERSION)
+                              ;;
+                          "minor")
+                              NEW_VERSION=$(npx semver -i minor $CURRENT_VERSION)
+                              ;;
+                          "patch")
+                              NEW_VERSION=$(npx semver -i patch $CURRENT_VERSION)
+                              ;;
+                          *)
+                              echo "Invalid version type"
+                              exit 1
+                              ;;
+                      esac
+                  fi
+
+                  TAG_NAME="v$NEW_VERSION"
+
+                  echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
+                  echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
+                  echo "New version: $NEW_VERSION"
+                  echo "Tag name: $TAG_NAME"
+
+            - name: Generate changelog
+              id: changelog
+              run: |
+                  LATEST_TAG="${{ steps.latest_tag.outputs.latest_tag }}"
+
+                  # Generate changelog from conventional commits
+                  echo "# Changelog" > CHANGELOG.md
+                  echo "" >> CHANGELOG.md
+
+                  # Get commits since last tag
+                  if [ "$LATEST_TAG" = "v0.0.0" ]; then
+                      # First release - get all commits
+                      COMMITS=$(git log --pretty=format:"%s" --reverse)
+                  else
+                      # Get commits since last tag
+                      COMMITS=$(git log ${LATEST_TAG}..HEAD --pretty=format:"%s" --reverse)
+                  fi
+
+                  # Parse conventional commits
+                  echo "$COMMITS" | while IFS= read -r commit; do
+                      if [[ $commit =~ ^feat(\(.+\))?!?: ]]; then
+                          echo "### ✨ Features" >> CHANGELOG.md
+                          echo "- ${commit#feat*: }" >> CHANGELOG.md
+                          echo "" >> CHANGELOG.md
+                      elif [[ $commit =~ ^fix(\(.+\))?: ]]; then
+                          echo "### 🐛 Bug Fixes" >> CHANGELOG.md
+                          echo "- ${commit#fix*: }" >> CHANGELOG.md
+                          echo "" >> CHANGELOG.md
+                      elif [[ $commit =~ ^docs(\(.+\))?: ]]; then
+                          echo "### 📚 Documentation" >> CHANGELOG.md
+                          echo "- ${commit#docs*: }" >> CHANGELOG.md
+                          echo "" >> CHANGELOG.md
+                      elif [[ $commit =~ ^perf(\(.+\))?: ]]; then
+                          echo "### ⚡ Performance" >> CHANGELOG.md
+                          echo "- ${commit#perf*: }" >> CHANGELOG.md
+                          echo "" >> CHANGELOG.md
+                      elif [[ $commit =~ ^refactor(\(.+\))?: ]]; then
+                          echo "### 🔧 Refactoring" >> CHANGELOG.md
+                          echo "- ${commit#refactor*: }" >> CHANGELOG.md
+                          echo "" >> CHANGELOG.md
+                      fi
+                  done
+
+                  # Check for breaking changes
+                  if echo "$COMMITS" | grep -q "BREAKING CHANGE\|!:"; then
+                      echo "### ⚠️ BREAKING CHANGES" >> CHANGELOG.md
+                      echo "$COMMITS" | grep -E "(BREAKING CHANGE|!:)" | while IFS= read -r commit; do
+                          echo "- ${commit}" >> CHANGELOG.md
+                      done
+                      echo "" >> CHANGELOG.md
+                  fi
+
+                  # If no conventional commits found, add a generic entry
+                  if [ ! -s CHANGELOG.md ] || [ "$(wc -l < CHANGELOG.md)" -le 2 ]; then
+                      echo "### Changes" >> CHANGELOG.md
+                      echo "- Various improvements and bug fixes" >> CHANGELOG.md
+                      echo "" >> CHANGELOG.md
+                  fi
+
+                  # Output changelog for use in release
+                  CHANGELOG_CONTENT=$(cat CHANGELOG.md)
+                  echo "changelog<<EOF" >> $GITHUB_OUTPUT
+                  echo "$CHANGELOG_CONTENT" >> $GITHUB_OUTPUT
+                  echo "EOF" >> $GITHUB_OUTPUT
+
+    build-release-assets:
+        name: Build Release Assets
+        runs-on: ubuntu-latest
+        needs: prepare-release
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+
+            - name: Set up Go
+              uses: actions/setup-go@v4
+              with:
+                  go-version: "1.21"
+
+            - name: Build proxy binaries
+              run: |
+                  cd proxy-src
+
+                  # Build for Windows (amd64)
+                  GOOS=windows GOARCH=amd64 go build -ldflags="-s -w -X main.version=${{ needs.prepare-release.outputs.version }}" -o ../bin/al-debug-proxy.exe .
+
+                  # Build for Linux (amd64)
+                  GOOS=linux GOARCH=amd64 go build -ldflags="-s -w -X main.version=${{ needs.prepare-release.outputs.version }}" -o ../bin/al-debug-proxy .
+
+                  # Build for macOS (amd64)
+                  GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w -X main.version=${{ needs.prepare-release.outputs.version }}" -o ../bin/al-debug-proxy-darwin .
+
+                  # Build for macOS (arm64)
+                  GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w -X main.version=${{ needs.prepare-release.outputs.version }}" -o ../bin/al-debug-proxy-darwin-arm64 .
+
+            - name: Make binaries executable
+              run: |
+                  chmod +x bin/al-debug-proxy
+                  chmod +x bin/al-debug-proxy-darwin
+                  chmod +x bin/al-debug-proxy-darwin-arm64
+
+            - name: Create plugin archive
+              run: |
+                  VERSION="${{ needs.prepare-release.outputs.version }}"
+
+                  # Create release directory
+                  mkdir -p release
+
+                  # Copy plugin files
+                  cp -r lua/ release/
+                  cp -r doc/ release/
+                  cp -r bin/ release/
+                  cp README.md release/
+                  cp DEBUGGING.md release/
+                  cp stylua.toml release/
+                  cp selene.toml release/
+                  cp vim.toml release/
+
+                  # Create version info
+                  echo "Version: $VERSION" > release/VERSION.txt
+                  echo "Release date: $(date -u)" >> release/VERSION.txt
+                  echo "Commit: ${{ github.sha }}" >> release/VERSION.txt
+
+                  # Create versioned archive
+                  cd release
+                  tar -czf ../al.nvim-v${VERSION}.tar.gz .
+                  cd ..
+
+            - name: Generate checksums
+              run: |
+                  # Generate checksums for all release assets
+                  sha256sum bin/al-debug-proxy.exe > checksums.txt
+                  sha256sum bin/al-debug-proxy >> checksums.txt
+                  sha256sum bin/al-debug-proxy-darwin >> checksums.txt
+                  sha256sum bin/al-debug-proxy-darwin-arm64 >> checksums.txt
+                  sha256sum al.nvim-v${{ needs.prepare-release.outputs.version }}.tar.gz >> checksums.txt
+
+            - name: Upload release assets
+              uses: actions/upload-artifact@v4
+              with:
+                  name: release-assets
+                  path: |
+                      bin/al-debug-proxy.exe
+                      bin/al-debug-proxy
+                      bin/al-debug-proxy-darwin
+                      bin/al-debug-proxy-darwin-arm64
+                      al.nvim-v${{ needs.prepare-release.outputs.version }}.tar.gz
+                      checksums.txt
+
+    create-release:
+        name: Create GitHub Release
+        runs-on: ubuntu-latest
+        needs: [prepare-release, build-release-assets]
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+
+            - name: Download release assets
+              uses: actions/download-artifact@v4
+              with:
+                  name: release-assets
+
+            - name: Create Release
+              uses: softprops/action-gh-release@v1
+              with:
+                  tag_name: ${{ needs.prepare-release.outputs.tag_name }}
+                  name: Release ${{ needs.prepare-release.outputs.tag_name }}
+                  body: |
+                      # al.nvim ${{ needs.prepare-release.outputs.tag_name }}
+
+                      ${{ needs.prepare-release.outputs.changelog }}
+
+                      ## 📦 Installation
+
+                      ### Using lazy.nvim
+                      ```lua
+                      {
+                        "abonckus/al.nvim",
+                        version = "${{ needs.prepare-release.outputs.tag_name }}",
+                        ft = "al",
+                        dependencies = {
+                          "MunifTanjim/nui.nvim",
+                        },
+                        opts = {},
+                      }
+                      ```
+
+                      ### Manual Installation
+                      Download and extract `al.nvim-v${{ needs.prepare-release.outputs.version }}.tar.gz` to your Neovim plugin directory.
+
+                      ## 🔐 Verification
+                      All release assets include SHA256 checksums in `checksums.txt` for verification.
+
+                      ## 🚀 What's Included
+                      - Cross-platform AL debug proxy binaries
+                      - Complete Neovim plugin
+                      - Documentation and examples
+                      - Configuration files
+                  files: |
+                      al-debug-proxy.exe
+                      al-debug-proxy
+                      al-debug-proxy-darwin
+                      al-debug-proxy-darwin-arm64
+                      al.nvim-v${{ needs.prepare-release.outputs.version }}.tar.gz
+                      checksums.txt
+                  draft: ${{ github.event.inputs.draft }}
+                  prerelease: ${{ github.event.inputs.prerelease }}
+                  generate_release_notes: false
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+            - name: Release summary
+              run: |
+                  echo "## 🎉 Release Created Successfully!" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo "**Version:** ${{ needs.prepare-release.outputs.tag_name }}" >> $GITHUB_STEP_SUMMARY
+                  echo "**Type:** ${{ github.event.inputs.version_type }}" >> $GITHUB_STEP_SUMMARY
+                  echo "**Pre-release:** ${{ github.event.inputs.prerelease }}" >> $GITHUB_STEP_SUMMARY
+                  echo "**Draft:** ${{ github.event.inputs.draft }}" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo "### 📦 Assets Included" >> $GITHUB_STEP_SUMMARY
+                  echo "- al-debug-proxy.exe (Windows)" >> $GITHUB_STEP_SUMMARY
+                  echo "- al-debug-proxy (Linux)" >> $GITHUB_STEP_SUMMARY
+                  echo "- al-debug-proxy-darwin (macOS Intel)" >> $GITHUB_STEP_SUMMARY
+                  echo "- al-debug-proxy-darwin-arm64 (macOS Apple Silicon)" >> $GITHUB_STEP_SUMMARY
+                  echo "- al.nvim-v${{ needs.prepare-release.outputs.version }}.tar.gz (Plugin Archive)" >> $GITHUB_STEP_SUMMARY
+                  echo "- checksums.txt (SHA256 Verification)" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo "🔗 [View Release](https://github.com/${{ github.repository }}/releases/tag/${{ needs.prepare-release.outputs.tag_name }})" >> $GITHUB_STEP_SUMMARY
