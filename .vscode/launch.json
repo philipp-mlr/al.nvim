@@ -1,0 +1,44 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "AL: Launch Local Development",
+            "type": "al",
+            "request": "launch",
+            "server": "http://localhost:8080",
+            "serverInstance": "BC",
+            "tenant": "default",
+            "authentication": "UserPassword",
+            "breakOnErrorBehaviour": "Stop",
+            "enableSqlInformationDebugger": true,
+            "enableLongRunningSqlStatements": true,
+            "longRunningSqlStatementsThreshold": 500,
+            "numberOfSqlStatements": 10
+        },
+        {
+            "name": "AL: Launch Cloud Sandbox",
+            "type": "al",
+            "request": "launch",
+            "server": "https://businesscentral.dynamics.com",
+            "serverInstance": "sandbox",
+            "tenant": "your-tenant-id",
+            "authentication": "AAD",
+            "breakOnErrorBehaviour": "Stop",
+            "enableSqlInformationDebugger": false,
+            "usePublicURLFromServer": true,
+            "useInteractiveLogin": true
+        },
+        {
+            "name": "AL: Launch On-Premises",
+            "type": "al",
+            "request": "launch",
+            "server": "http://your-bc-server:7048",
+            "serverInstance": "BC210",
+            "tenant": "default",
+            "authentication": "Windows",
+            "breakOnErrorBehaviour": "Stop",
+            "enableSqlInformationDebugger": true,
+            "validateServerCertificate": false
+        }
+    ]
+}

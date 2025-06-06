@@ -1,0 +1,174 @@
+name: Build
+
+on:
+    push:
+        branches: [main, master]
+    workflow_dispatch:
+
+jobs:
+    build-proxy:
+        name: Build AL Debug Proxy
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+
+            - name: Set up Go
+              uses: actions/setup-go@v4
+              with:
+                  go-version: "1.21"
+
+            - name: Build proxy binaries
+              run: |
+                  cd proxy-src
+
+                  # Build for Windows (amd64)
+                  GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o ../bin/al-debug-proxy.exe .
+
+                  # Build for Linux (amd64)
+                  GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o ../bin/al-debug-proxy .
+
+                  # Build for macOS (amd64)
+                  GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w" -o ../bin/al-debug-proxy-darwin .
+
+                  # Build for macOS (arm64)
+                  GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w" -o ../bin/al-debug-proxy-darwin-arm64 .
+
+            - name: Make binaries executable
+              run: |
+                  chmod +x bin/al-debug-proxy
+                  chmod +x bin/al-debug-proxy-darwin
+                  chmod +x bin/al-debug-proxy-darwin-arm64
+
+            - name: Verify binaries
+              run: |
+                  ls -la bin/
+                  file bin/al-debug-proxy*
+
+            - name: Generate checksums
+              run: |
+                  cd bin
+                  sha256sum al-debug-proxy* > checksums.txt
+                  cat checksums.txt
+
+            - name: Upload proxy binaries
+              uses: actions/upload-artifact@v4
+              with:
+                  name: al-debug-proxy-binaries
+                  path: |
+                      bin/al-debug-proxy*
+                      bin/checksums.txt
+                  retention-days: 30
+
+    build-plugin:
+        name: Build Plugin Archive
+        runs-on: ubuntu-latest
+        needs: build-proxy
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+
+            - name: Download proxy binaries
+              uses: actions/download-artifact@v4
+              with:
+                  name: al-debug-proxy-binaries
+                  path: bin/
+
+            - name: Create plugin archive
+              run: |
+                  # Create a clean archive without .git and other unnecessary files
+                  mkdir -p dist
+
+                  # Copy plugin files
+                  cp -r lua/ dist/
+                  cp -r doc/ dist/
+                  cp -r bin/ dist/
+                  cp README.md dist/
+                  cp DEBUGGING.md dist/
+                  cp stylua.toml dist/
+                  cp selene.toml dist/
+                  cp vim.toml dist/
+
+                  # Create version info
+                  echo "Built from commit: ${{ github.sha }}" > dist/BUILD_INFO.txt
+                  echo "Build date: $(date -u)" >> dist/BUILD_INFO.txt
+                  echo "Branch: ${{ github.ref_name }}" >> dist/BUILD_INFO.txt
+
+            - name: Create tarball
+              run: |
+                  cd dist
+                  tar -czf ../al.nvim-latest.tar.gz .
+                  cd ..
+
+                  # Generate checksum for the archive
+                  sha256sum al.nvim-latest.tar.gz > al.nvim-latest.tar.gz.sha256
+
+            - name: Verify archive contents
+              run: |
+                  echo "Archive contents:"
+                  tar -tzf al.nvim-latest.tar.gz | head -20
+                  echo "..."
+                  echo "Archive size: $(du -h al.nvim-latest.tar.gz)"
+
+            - name: Upload plugin archive
+              uses: actions/upload-artifact@v4
+              with:
+                  name: al-nvim-plugin
+                  path: |
+                      al.nvim-latest.tar.gz
+                      al.nvim-latest.tar.gz.sha256
+                  retention-days: 30
+
+    validate-build:
+        name: Validate Build
+        runs-on: ubuntu-latest
+        needs: [build-proxy, build-plugin]
+        steps:
+            - name: Download all artifacts
+              uses: actions/download-artifact@v4
+
+            - name: Validate proxy binaries
+              run: |
+                  echo "Checking proxy binaries..."
+                  ls -la al-debug-proxy-binaries/
+
+                  # Check that all expected binaries exist
+                  test -f al-debug-proxy-binaries/al-debug-proxy.exe
+                  test -f al-debug-proxy-binaries/al-debug-proxy
+                  test -f al-debug-proxy-binaries/al-debug-proxy-darwin
+                  test -f al-debug-proxy-binaries/al-debug-proxy-darwin-arm64
+                  test -f al-debug-proxy-binaries/checksums.txt
+
+                  echo "All proxy binaries present ✓"
+
+            - name: Validate plugin archive
+              run: |
+                  echo "Checking plugin archive..."
+                  ls -la al-nvim-plugin/
+
+                  # Check archive exists and has reasonable size
+                  test -f al-nvim-plugin/al.nvim-latest.tar.gz
+                  test -f al-nvim-plugin/al.nvim-latest.tar.gz.sha256
+
+                  # Verify archive is not empty and contains expected structure
+                  tar -tzf al-nvim-plugin/al.nvim-latest.tar.gz | grep -q "lua/"
+                  tar -tzf al-nvim-plugin/al.nvim-latest.tar.gz | grep -q "README.md"
+                  tar -tzf al-nvim-plugin/al.nvim-latest.tar.gz | grep -q "bin/"
+
+                  echo "Plugin archive valid ✓"
+
+            - name: Build summary
+              run: |
+                  echo "## Build Summary" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo "### Proxy Binaries" >> $GITHUB_STEP_SUMMARY
+                  echo "- Windows (amd64): al-debug-proxy.exe" >> $GITHUB_STEP_SUMMARY
+                  echo "- Linux (amd64): al-debug-proxy" >> $GITHUB_STEP_SUMMARY
+                  echo "- macOS (amd64): al-debug-proxy-darwin" >> $GITHUB_STEP_SUMMARY
+                  echo "- macOS (arm64): al-debug-proxy-darwin-arm64" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo "### Plugin Archive" >> $GITHUB_STEP_SUMMARY
+                  echo "- Archive: al.nvim-latest.tar.gz" >> $GITHUB_STEP_SUMMARY
+                  echo "- Size: $(du -h al-nvim-plugin/al.nvim-latest.tar.gz | cut -f1)" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo "All artifacts are ready for release! 🚀" >> $GITHUB_STEP_SUMMARY

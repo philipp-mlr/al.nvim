@@ -14,6 +14,12 @@ A Neovim plugin that provides AL (Application Language) support for Microsoft Dy
 - **🔨 Build System**: Integrated build commands for AL packages
 - **📦 Symbol Management**: Download and manage AL symbols
 - **🔐 Authentication**: Credential management and authentication handling
+- **🐛 Debugging Support**: Full nvim-dap integration with AL debugger featuring:
+  - **Cross-platform proxy solution** to solve stdio handle issues with AL EditorServices
+  - **Automatic build integration** - builds your AL package before debugging
+  - **Complete DAP protocol support** with message filtering and processing
+  - **Multi-platform binaries** for Windows, Linux, macOS (Intel & Apple Silicon)
+  - **Seamless nvim-dap integration** with dapui and virtual text support
 - **📊 Progress Notifications**: Real-time feedback during AL operations
 - **⚙️ Configurable Settings**: Extensive configuration options for LSP behavior and workspace settings
 
@@ -30,7 +36,8 @@ The plugin provides an `:AL` command with the following subcommands:
 
 - Neovim 0.9+ (some features require 0.10+)
 - Microsoft AL Language Extension for VS Code (the plugin automatically detects and uses the AL language server from your VS Code extensions)
-- Windows environment (currently Windows-specific paths and commands)
+- **Cross-platform support**: Windows, Linux, and macOS (Intel & Apple Silicon)
+  - *Note: While the debugging proxy supports all platforms, some AL language server features may work best on Windows*
 
 ## 🔗 Dependencies
 
@@ -45,9 +52,18 @@ nui.nvim is required for key features like symbol download configuration selecti
 - **[blink.cmp](https://github.com/saghen/blink.cmp)** by [@saghen](https://github.com/saghen) - Modern completion engine with LSP support
   - *⚠️ Important Note*: LSP completion does not work out of the box with standard Neovim completion engines due to non-standard CompletionItem structures in the AL language server implementation. A transform method is required to properly handle completion items. See our [recommended installation with blink.cmp](#installation-with-blinkcmp-recommended) for a tested configuration.
 
+### 🐛 Debugging Support
+- **[nvim-dap](https://github.com/mfussenegger/nvim-dap)** by [@mfussenegger](https://github.com/mfussenegger) - Debug Adapter Protocol implementation for Neovim
+- **[nvim-dap-ui](https://github.com/rcarriga/nvim-dap-ui)** by [@rcarriga](https://github.com/rcarriga) - UI components for nvim-dap debugging sessions
+- **[nvim-nio](https://github.com/nvim-neotest/nvim-nio)** by [@nvim-neotest](https://github.com/nvim-neotest) - Async I/O library for Neovim
+- **[nvim-dap-virtual-text](https://github.com/theHamsta/nvim-dap-virtual-text)** by [@theHamsta](https://github.com/theHamsta) - Inline variable display during debugging
+
+*⚠️ Note: These debugging dependencies are currently required but will be made optional in future releases.*
+
 ### 🔧 Optional Plugins
 
 - **[output-panel.nvim](https://github.com/mhanberg/output-panel.nvim)** by [@mhanberg](https://github.com/mhanberg) - Recommended for viewing LSP server window/logMessage calls, which can be helpful for debugging AL language server issues
+  - *⚠️ Note: This plugin may experience issues when using the AL debugger*
 
 ## 🎯 Quick Start
 
@@ -74,6 +90,14 @@ nui.nvim is required for key features like symbol download configuration selecti
 {
   "abonckus/al.nvim",
   ft = "al",
+  dependencies = {
+    "MunifTanjim/nui.nvim",
+    -- For debugging support (currently required, will be made optional in future)
+    "mfussenegger/nvim-dap",
+    "rcarriga/nvim-dap-ui",
+    "nvim-neotest/nvim-nio",
+    "theHamsta/nvim-dap-virtual-text",
+  },
   opts = {
     -- your configuration here
   },
@@ -217,6 +241,75 @@ your-al-project/
    :AL clearCredentialsCache    " Clear credentials
    ```
 
+## 🐛 AL Debugging with nvim-dap
+
+al.nvim provides full debugging support through nvim-dap integration, solving critical compatibility issues with the AL EditorServices.
+
+### The Challenge
+
+When attempting to use AL debugging directly with nvim-dap, the AL EditorServices crashes with stdio handle errors:
+
+```
+System.IO.IOException: The handle is invalid.
+at System.ConsolePal.SetConsoleInputEncoding(Encoding enc)
+```
+
+This occurs because the AL EditorServices expects proper console handles, but nvim-dap's process spawning doesn't provide them correctly.
+
+### Our Solution: Debug Proxy
+
+We developed a lightweight Go-based proxy that sits between nvim-dap and the AL EditorServices:
+
+```
+nvim-dap ↔ al-debug-proxy ↔ AL EditorServices ↔ Business Central
+```
+
+The proxy:
+- **Solves stdio handle issues** by providing proper console initialization
+- **Forwards all DAP protocol messages** transparently between nvim-dap and AL EditorServices
+- **Handles process lifecycle** including cleanup and signal management
+- **Processes DAP messages** to fix protocol inconsistencies
+- **Supports all platforms** with optimized binaries for Windows, Linux, and macOS
+
+### Getting Started
+
+1. **Install nvim-dap dependencies**:
+   ```lua
+   {
+     "mfussenegger/nvim-dap",
+     dependencies = {
+       "rcarriga/nvim-dap-ui",
+       "theHamsta/nvim-dap-virtual-text",
+     },
+   }
+   ```
+
+2. **Configure your `.vscode/launch.json`** with AL debug settings
+
+3. **Start debugging** with standard nvim-dap commands:
+   ```vim
+   :DapToggleBreakpoint    " Set breakpoints
+   :DapContinue           " Start debugging
+   ```
+
+The plugin automatically builds your AL package before debugging and handles all the proxy communication seamlessly.
+
+For detailed technical information about the proxy implementation, see [DEBUGGING.md](DEBUGGING.md).
+
+### Building from Source
+
+The plugin includes pre-built proxy binaries for all supported platforms in the `bin/` directory. If you need to build the proxy yourself:
+
+```bash
+# Unix systems (Linux/macOS)
+cd proxy-src && ./build.sh
+
+# Windows
+cd proxy-src && build.bat
+```
+
+Requires Go 1.21+ to build from source.
+
 ## 🔧 Troubleshooting
 
 ### ❌ Language Server Not Starting
@@ -246,6 +339,12 @@ your-al-project/
 - Verify your authentication credentials are correct
 - Ensure the selected configuration in launch.json is valid
 - Try clearing credentials cache and re-authenticating
+
+### 🐛 Debugging Issues
+- **AL Debugger Not Starting**: The plugin uses a proxy to solve stdio handle issues with nvim-dap. If debugging fails, ensure the proxy binary exists in the `bin/` directory
+- **"Handle is invalid" Error**: This error is solved by the proxy approach - make sure you're using the latest version of the plugin
+- **Debugger Connection Issues**: Check your launch.json configuration and ensure your Business Central server is accessible
+- **Breakpoints Not Working**: Verify that your AL code is published to the server and that the debugger is attached to the correct session
 
 ## 🎨 Showcase
 
@@ -278,19 +377,20 @@ return {
   {
     "abonckus/al.nvim",
     ft = "al",
-    -- Make sure this is loaded on startup
     lazy = false,
     dependencies = {
       "MunifTanjim/nui.nvim",
+      "mfussenegger/nvim-dap",
+      "rcarriga/nvim-dap-ui",
+      "nvim-neotest/nvim-nio",
+      "theHamsta/nvim-dap-virtual-text",
     },
     opts = {
+      vscodeExtensionsPath = "~\\.vscode\\extensions\\",
       workspace = {
         alResourceConfigurationSettings = {
           codeAnalyzers = {
             "${CodeCop}",
-            "${UICop}",
-            "${PerTenantExtensionCop}",
-            "${AppSourceCop}",
             "${analyzerFolder}BusinessCentral.LinterCop.dll",
           },
           enableCodeAnalysis = true,
@@ -401,9 +501,18 @@ This plugin is in active development. Contributions are welcome! Please:
 
 ## 🙏 Acknowledgments
 
-- Microsoft for the AL Language Server
-- The Neovim LSP team for the excellent LSP infrastructure
-- The AL/Business Central development community
+- **Microsoft Corporation** for the AL Language Server and Business Central platform
+- **The Neovim LSP team** for the excellent LSP infrastructure that makes this plugin possible
+- **[@MunifTanjim](https://github.com/MunifTanjim)** for [nui.nvim](https://github.com/MunifTanjim/nui.nvim) - Essential UI components
+- **[@saghen](https://github.com/saghen)** for [blink.cmp](https://github.com/saghen/blink.cmp) - Modern completion engine with AL support
+- **[@folke](https://github.com/folke)** for [LazyVim](https://github.com/LazyVim/LazyVim) and [which-key.nvim](https://github.com/folke/which-key.nvim) - Modern Neovim framework and key binding system
+- **[@mhanberg](https://github.com/mhanberg)** for [output-panel.nvim](https://github.com/mhanberg/output-panel.nvim) - LSP output and log viewer
+- **[@SShadowS](https://github.com/SShadowS)** for [tree-sitter-al](https://github.com/SShadowS/tree-sitter-al) - AL syntax highlighting support
+- **[@mfussenegger](https://github.com/mfussenegger)** for [nvim-dap](https://github.com/mfussenegger/nvim-dap) - Debug Adapter Protocol implementation
+- **[@rcarriga](https://github.com/rcarriga)** for [nvim-dap-ui](https://github.com/rcarriga/nvim-dap-ui) - Debug UI components
+- **[@theHamsta](https://github.com/theHamsta)** for [nvim-dap-virtual-text](https://github.com/theHamsta/nvim-dap-virtual-text) - Inline debug information
+- **The AL/Business Central development community** for feedback, testing, and contributions
+- **The Go programming language team** for the tools that made our cross-platform proxy possible
 
 ---
 

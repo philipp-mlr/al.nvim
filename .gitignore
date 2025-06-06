@@ -7,3 +7,14 @@
 foo.*
 node_modules
 tt.*
+
+# Go-specific ignores
+go.sum
+vendor/
+*.test
+*.prof
+
+# Go build artifacts in proxy-src/
+
+proxy-src/al-debug-proxy*
+proxy-src/*.exe

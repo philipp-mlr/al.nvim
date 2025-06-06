@@ -1,0 +1,33 @@
+name: CI
+
+on:
+    push:
+        branches: [main, master]
+    pull_request:
+        branches: [main, master]
+
+jobs:
+    documentation:
+        name: Documentation Checks
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+
+            - name: Check README links
+              run: |
+                  # Basic check for broken internal links
+                  grep -n "](\./" README.md | while read line; do
+                    file=$(echo "$line" | sed 's/.*](\.\///g' | sed 's/).*//g')
+                    if [ ! -f "$file" ]; then
+                      echo "Broken link found: $file"
+                      exit 1
+                    fi
+                  done
+
+            - name: Validate plugin structure
+              run: |
+                  # Check required files exist
+                  test -f lua/al/init.lua || (echo "Missing lua/al/init.lua" && exit 1)
+                  test -f README.md || (echo "Missing README.md" && exit 1)
+                  echo "Plugin structure is valid"
