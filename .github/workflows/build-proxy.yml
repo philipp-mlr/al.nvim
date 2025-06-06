@@ -1,0 +1,69 @@
+name: Build AL Debug Proxy
+
+on:
+    push:
+        branches: [main, master]
+        paths:
+            - "proxy-src/**"
+    pull_request:
+        branches: [main, master]
+        paths:
+            - "proxy-src/**"
+    release:
+        types: [published]
+
+jobs:
+    build:
+        runs-on: ubuntu-latest
+
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Set up Go
+              uses: actions/setup-go@v4
+              with:
+                  go-version: "1.21"
+
+            - name: Build proxy binaries
+              run: |
+                  cd proxy-src
+
+                  # Build for Windows (amd64)
+                  GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o ../bin/al-debug-proxy.exe .
+
+                  # Build for Linux (amd64)
+                  GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o ../bin/al-debug-proxy .
+
+                  # Build for macOS (amd64)
+                  GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w" -o ../bin/al-debug-proxy-darwin .
+
+                  # Build for macOS (arm64)
+                  GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w" -o ../bin/al-debug-proxy-darwin-arm64 .
+
+            - name: Make binaries executable
+              run: |
+                  chmod +x bin/al-debug-proxy
+                  chmod +x bin/al-debug-proxy-darwin
+                  chmod +x bin/al-debug-proxy-darwin-arm64
+
+            - name: Verify binaries
+              run: |
+                  ls -la bin/
+                  file bin/*
+
+            - name: Upload binaries as artifacts
+              uses: actions/upload-artifact@v3
+              with:
+                  name: al-debug-proxy-binaries
+                  path: bin/al-debug-proxy*
+                  retention-days: 30
+
+            - name: Upload binaries to release
+              if: github.event_name == 'release'
+              uses: softprops/action-gh-release@v1
+              with:
+                  files: |
+                      bin/al-debug-proxy.exe
+                      bin/al-debug-proxy
+                      bin/al-debug-proxy-darwin
+                      bin/al-debug-proxy-darwin-arm64
