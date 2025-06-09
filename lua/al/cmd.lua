@@ -37,6 +37,9 @@ M.commands = {
 		local configs = M.get_launch_configurations()
 		clear_credential_cache(configs.configurations)
 	end,
+	definition = function()
+		Lsp.go_to_definition()
+	end
 }
 
 M.get_launch_configurations = function()
