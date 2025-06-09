@@ -466,6 +466,7 @@ return {
         { "<leader>ab", "<cmd>AL build<cr>", desc = "Build AL Package", icon = "AL" },
         { "<leader>as", "<cmd>AL downloadSymbols<cr>", desc = "Download Symbols", icon = "AL" },
         { "<leader>ac", "<cmd>AL clearCredentialsCache<cr>", desc = "Clear Credentials", icon = "AL" },
+        { "gd", "<cmd>AL definition<cr>", desc = "Go to AL definition", icon = "AL" }
       },
     },
   },

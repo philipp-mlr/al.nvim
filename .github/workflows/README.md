@@ -67,10 +67,12 @@ graph TD
 ## 🗂️ Deprecated Files
 
 ### [`build-proxy.yml`](build-proxy.yml)
-**[DEPRECATED]** - Replaced by the comprehensive pipeline
+**[DEPRECATED]** - Replaced by the comprehensive CI/CD pipeline
 - This was the original simple proxy build workflow
-- Now disabled and kept only for reference
-- Use the new CI/Build/Release pipeline instead
+- Triggers disabled (manual dispatch only for reference)
+- All functionality moved to the new CI/Build/Release pipeline
+- Kept for historical reference and emergency fallback
+- **Use the new CI/Build/Release pipeline instead**
 
 ## 🎯 Quick Start
 

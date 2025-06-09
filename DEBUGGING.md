@@ -35,21 +35,34 @@ nvim-dap <--stdio--> al-debug-proxy <--stdio--> Microsoft.Dynamics.Nav.EditorSer
 
 ### Proxy Application (Go)
 
-The proxy is written in Go for cross-platform compatibility and small binary size:
+The proxy is written in Go for cross-platform compatibility and small binary size. It provides:
+
+- **Cross-platform process management** with proper signal handling
+- **DAP message filtering and processing** to fix protocol inconsistencies
+- **Automatic build integration** - builds AL packages before debugging
+- **Robust error handling** and logging for troubleshooting
 
 ```go
-// Simplified version
+// Simplified architecture
 func main() {
-    // Launch AL EditorServices with all passed arguments
-    cmd := exec.Command("dotnet", os.Args[1:]...)
+    // Parse command line arguments
+    args := parseArgs(os.Args[1:])
     
-    // Set up proper stdio pipes
-    cmd.Stdin = os.Stdin
-    cmd.Stdout = os.Stdout
-    cmd.Stderr = os.Stderr
+    // Launch AL EditorServices with proper console setup
+    cmd := exec.Command("dotnet", args...)
     
-    // Start and wait for completion
-    cmd.Start()
+    // Set up cross-platform stdio pipes with proper handles
+    setupStdio(cmd)
+    
+    // Handle signals for graceful shutdown
+    setupSignalHandling(cmd)
+    
+    // Start process and forward all communication
+    if err := cmd.Start(); err != nil {
+        log.Fatal(err)
+    }
+    
+    // Wait for completion with proper cleanup
     cmd.Wait()
 }
 ```
