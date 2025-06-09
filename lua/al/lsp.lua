@@ -124,7 +124,6 @@ function M.cmd()
         "/extendGoToSymbolInWorkspaceIncludeSymbolFiles:"
         .. tostring(Config.lsp.extendGoToSymbolInWorkspaceIncludeSymbolFiles),
         "/sessionId:" .. (Utils.create_uuid()),
-        "/logLevel:trace"
     }
 end
 
