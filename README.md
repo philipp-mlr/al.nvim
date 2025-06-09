@@ -31,6 +31,7 @@ The plugin provides an `:AL` command with the following subcommands:
 - `:AL downloadSymbols` - 📦 Download symbols with configuration selection
 - `:AL clearCredentialsCache` - 🗑️ Clear cached credentials
 - `:AL lsp` - 🔍 Display LSP client information and settings
+- `:AL definition` - 🎯 Go to definition of symbol under cursor
 
 ## 📋 Requirements
 
