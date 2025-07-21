@@ -1,11 +1,18 @@
 local Config = require("al.config")
 local Util = require("al.utils")
+local Lsp = require("al.lsp")
 
 local auth = require("al.editor_commands.auth")
 
 ---@param cb fun(err: lsp.ResponseError, result: any, ctx: lsp.HandlerContext, config?: table)
 local download_symbols_lsp_request = function(params, cb)
-	vim.lsp.buf_request(0, "al/downloadSymbols", params, cb)
+	local bufnr = vim.api.nvim_get_current_buf()
+	local client = Lsp.get_client_for_buf(bufnr)
+	if not client then
+		Util.error("No AL language server attached to the current buffer.")
+		return
+	end
+	client.request(client, "al/downloadSymbols", params, cb)
 end
 
 local download_symbols_handler

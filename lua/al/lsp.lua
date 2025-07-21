@@ -112,7 +112,6 @@ end
 
 function M.cmd()
     return {
-        "dotnet",
         M.find_lsp_path(Config.vscodeExtensionsPath),
         "/telemetryLevel:" .. Config.lsp.telemetryLevel,
         "/browser:" .. Config.lsp.browser,
@@ -122,21 +121,24 @@ function M.cmd()
         "/extendGoToSymbolInWorkspace:" .. tostring(Config.lsp.extendGoToSymbolInWorkspace),
         "/extendGoToSymbolInWorkspaceResultLimit:" .. tostring(Config.lsp.extendGoToSymbolInWorkspaceResultLimit),
         "/extendGoToSymbolInWorkspaceIncludeSymbolFiles:"
-        .. tostring(Config.lsp.extendGoToSymbolInWorkspaceIncludeSymbolFiles),
+            .. tostring(Config.lsp.extendGoToSymbolInWorkspaceIncludeSymbolFiles),
         "/sessionId:" .. (Utils.create_uuid()),
     }
 end
 
 function M.find_lsp_path(basePath)
     local path = ""
+    local os_name = vim.loop.os_uname().sysname:lower()
     for filename in io.popen('dir "' .. vim.fn.expand(basePath) .. '" /b /ad'):lines() do
         local match = filename:match("ms%-dynamics%-smb.al%-(.+)")
         if match then
             Config.language_extension_version = match
-            path = vim.fn.expand(basePath)
-                .. (basePath:sub(- #basePath) == "\\" and "\\" or "")
-                .. filename
-                .. "\\bin\\win32\\Microsoft.Dynamics.Nav.EditorServices.Host.dll"
+            path = vim.fn.expand(basePath) .. (basePath:sub(-#basePath) == "\\" and "\\" or "") .. filename
+            if os_name:match("windows") then
+                path = path .. "\\bin\\win32\\Microsoft.Dynamics.Nav.EditorServices.Host.exe"
+            else
+                path = path .. "/bin/linux/Microsoft.Dynamics.Nav.EditorServices.Host"
+            end
         end
     end
     return path
@@ -144,7 +146,7 @@ end
 
 function M.go_to_definition()
     local method = "al/gotodefinition"
-    local util = require('vim.lsp.util')
+    local util = require("vim.lsp.util")
     local lsp = vim.lsp
     local api = vim.api
 
@@ -156,9 +158,9 @@ function M.go_to_definition()
         return
     end
     local win = api.nvim_get_current_win()
-    local from = vim.fn.getpos('.')
+    local from = vim.fn.getpos(".")
     from[1] = bufnr
-    local tagname = vim.fn.expand('<cword>')
+    local tagname = vim.fn.expand("<cword>")
     local remaining = #clients
 
     ---@type vim.quickfix.entry[]
@@ -176,13 +178,13 @@ function M.go_to_definition()
         remaining = remaining - 1
         if remaining == 0 then
             if vim.tbl_isempty(all_items) then
-                vim.notify('No locations found', vim.log.levels.INFO)
+                vim.notify("No locations found", vim.log.levels.INFO)
                 return
             end
 
-            local title = 'LSP locations'
+            local title = "LSP locations"
             if opts.on_list then
-                assert(vim.is_callable(opts.on_list), 'on_list is not a function')
+                assert(vim.is_callable(opts.on_list), "on_list is not a function")
                 opts.on_list({
                     title = title,
                     items = all_items,
@@ -199,7 +201,7 @@ function M.go_to_definition()
                 vim.cmd("normal! m'")
                 -- Push a new item into tagstack
                 local tagstack = { { tagname = tagname, from = from } }
-                vim.fn.settagstack(vim.fn.win_getid(win), { items = tagstack }, 't')
+                vim.fn.settagstack(vim.fn.win_getid(win), { items = tagstack }, "t")
 
                 vim.bo[b].buflisted = true
                 local w = win
@@ -213,16 +215,16 @@ function M.go_to_definition()
                 api.nvim_win_set_cursor(w, { item.lnum, item.col - 1 })
                 vim._with({ win = w }, function()
                     -- Open folds under the cursor
-                    vim.cmd('normal! zv')
+                    vim.cmd("normal! zv")
                 end)
                 return
             end
             if opts.loclist then
-                vim.fn.setloclist(0, {}, ' ', { title = title, items = all_items })
+                vim.fn.setloclist(0, {}, " ", { title = title, items = all_items })
                 vim.cmd.lopen()
             else
-                vim.fn.setqflist({}, ' ', { title = title, items = all_items })
-                vim.cmd('botright copen')
+                vim.fn.setqflist({}, " ", { title = title, items = all_items })
+                vim.cmd("botright copen")
             end
         end
     end
@@ -241,6 +243,17 @@ function M.go_to_definition()
             on_response(_, result, client)
         end)
     end
+end
+
+---@param bufnr integer
+---@return vim.lsp.Client?
+M.get_client_for_buf = function(bufnr)
+    local clients = Utils.get_clients({ bufnr = bufnr })
+    clients = vim.tbl_filter(function(client)
+        return client and M.supports(client)
+    end, clients)
+    local client = clients[1]
+    return client
 end
 
 return M

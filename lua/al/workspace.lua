@@ -115,7 +115,7 @@ M.set_active = function(client, buf)
 		settings = settings,
 	}
 
-	vim.lsp.buf_request(buf, "al/setActiveWorkspace", request, M.on_set_active_response)
+	client.request(client, "al/setActiveWorkspace", request, M.on_set_active_response)
 end
 
 ---@param err? lsp.ResponseError
@@ -123,17 +123,31 @@ end
 ---@param result any
 ---@param config? table
 function M.on_set_active_response(err, result, ctx, config)
-	if not result.success then
-		vim.notify("al: Failed to set active workspace. " .. err.message, vim.log.levels.ERROR)
+	if result and not result.success then
+		Utils.error("al: Failed to set active workspace. " .. err.message)
 	end
+	if not result then
+		return
+	end
+
 	local client = vim.lsp.get_client_by_id(ctx.client_id)
 	local ws = M.get(client, ctx.bufnr)
 	local id = ws.client_id .. ws.root
 
 	M.active = id
 
+	if not client then
+		Utils.error("al: No AL language server attached to the current buffer.")
+		return
+	end
+
 	if not M.hasProjectClosureLoaded then
-		client.request("al/hasProjectClosureLoadedRequest", { workspacePath = ws.root }, M.on_project_closure_loaded)
+		client.request(
+			client,
+			"al/hasProjectClosureLoadedRequest",
+			{ workspacePath = ws.root },
+			M.on_project_closure_loaded
+		)
 	end
 end
 

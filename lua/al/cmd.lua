@@ -2,10 +2,12 @@ local Lsp = require("al.lsp")
 local Workspace = require("al.workspace")
 local Util = require("al.utils")
 local Ui = require("al.ui")
+local Config = require("al.config")
 
 local download_symbols = require("al.editor_commands.download_symbols")
 local clear_credential_cache = require("al.editor_commands.clear_credential_cache")
 local build_package = require("al.editor_commands.build")
+local auth = require("al.editor_commands.auth")
 
 local M = {}
 
@@ -27,7 +29,9 @@ M.commands = {
 		Util.info(lines)
 	end,
 	build = function()
-		build_package()
+		coroutine.resume(coroutine.create(function()
+			build_package()
+		end))
 	end,
 	downloadSymbols = function()
 		local configs = M.get_launch_configurations()
@@ -39,6 +43,24 @@ M.commands = {
 	end,
 	definition = function()
 		Lsp.go_to_definition()
+	end,
+	authenticate = function()
+		local configs = M.get_launch_configurations()
+		Ui.show_config_selection_menu(configs.configurations, function(item)
+			coroutine.resume(coroutine.create(function()
+				local config = vim.tbl_extend("force", Config.default_launch_cfg, item.config or {})
+				local result = auth(config)
+				if result == "success" then
+					Util.info("Authentication successful for " .. config.name)
+				end
+				if result == "fail" then
+					Util.error("Authentication failed for " .. config.name)
+				end
+				if result == "cancelled" then
+					Util.warn("Authentication cancelled for " .. config.name)
+				end
+			end))
+		end)
 	end
 }
 
