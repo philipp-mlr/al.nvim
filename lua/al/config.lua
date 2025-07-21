@@ -20,6 +20,10 @@ local M = {}
 ---@field lsp al.Config.LSP
 local defaults = {
     vscodeExtensionsPath = "~\\.vscode\\extensions\\",
+    integrations = {
+        luasnip = true,
+        noice = true,
+    },
     workspace = {
         alResourceConfigurationSettings = {
             assemblyProbingPaths = {
@@ -97,7 +101,7 @@ M.default_launch_cfg = {
     -- Environment settings
     environmentName = "",
     environmentType = nil, -- Can be "OnPrem", "Sandbox", or "Production"
-    sandboxName = "",      -- Deprecated but kept for compatibility
+    sandboxName = "", -- Deprecated but kept for compatibility
     -- Network and timeout settings
     disableHttpRequestTimeout = false,
     -- Snapshot settings
@@ -133,10 +137,10 @@ function M.setup(opts)
     -- })
 
     vim.schedule(function()
-        require("al.filetype").setup()
         require("al.lsp").setup()
         require("al.debugger").setup()
         require("al.buf").setup()
+        require("al.integrations").setup()
     end)
     return options
 end
