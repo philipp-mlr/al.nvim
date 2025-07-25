@@ -28,6 +28,15 @@
             nvim-dap-virtual-text
             noice-nvim
           ];
+          nvimSkipModule = [
+            "al.luasnippets.al.trigger"
+            "al.luasnippets.al.procedure"
+            "al.luasnippets.al.report-column"
+            "al.luasnippets.al.report"
+            "al.luasnippets.al.report-dataitem"
+            "al.luasnippets.al.report-layout"
+            "al.debugger"
+          ];
         };
       };
     };
