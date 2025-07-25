@@ -20,6 +20,7 @@
         nvim-dap
         nvim-nio
         nvim-dap-virtual-text
+        noice-nvim
       ];
       meta = with pkgs.lib; {
         description = "A Neovim plugin for AL language support in Microsoft Dynamics 365 Business Central development.";
