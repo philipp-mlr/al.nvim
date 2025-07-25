@@ -5,13 +5,16 @@
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
   };
 
-  outputs = { self, nixpkgs }: {
-    defaultPackage.x86_64-linux =
-      let
-        pkgs = import nixpkgs {
-          system = "x86_64-linux";
-        };
-      in pkgs.vimUtils.buildVimPlugin {
+  outputs = {
+    self,
+    nixpkgs,
+  }: {
+    defaultPackage.x86_64-linux = let
+      pkgs = import nixpkgs {
+        system = "x86_64-linux";
+      };
+    in
+      pkgs.vimUtils.buildVimPlugin {
         pname = "al-nvim";
         version = "unstable";
 
@@ -29,9 +32,8 @@
           description = "A Neovim plugin for AL language support in Microsoft Dynamics 365 Business Central development.";
           homepage = "https://github.com/abonckus/al.nvim";
           license = licenses.mit;
-          maintainers = with maintainers; [ abonckus ];
+          maintainers = with maintainers; [abonckus];
         };
       };
   };
 }
-
