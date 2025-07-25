@@ -8,13 +8,12 @@
   outputs = {
     self,
     nixpkgs,
-  }: {
-    defaultPackage.x86_64-linux = let
-      pkgs = import nixpkgs {
-        system = "x86_64-linux";
-      };
-    in
-      pkgs.vimUtils.buildVimPlugin {
+  }: let
+    systems = ["x86_64-linux" "aarch64-linux"]; # optionally extend for other platforms
+    eachSystem = nixpkgs.lib.genAttrs systems (system: let
+      pkgs = import nixpkgs {inherit system;};
+    in {
+      packages.al-nvim = pkgs.vimUtils.buildVimPlugin {
         pname = "al-nvim";
         version = "unstable";
 
@@ -35,5 +34,10 @@
           maintainers = with maintainers; [abonckus];
         };
       };
-  };
+
+      # Optional: defaultPackage and defaultApp
+      defaultPackage = eachSystem.${system}.packages.al-nvim;
+    });
+  in
+    eachSystem;
 }
