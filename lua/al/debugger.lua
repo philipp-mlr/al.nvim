@@ -36,10 +36,10 @@ function M.setup()
     end
 
     dap.adapters.al = function(callback, config)
-        -- local auth_result = auth(config)
-        -- if auth_result ~= "success" then
-        --     Util.error("Authentication failed: " .. auth_result)
-        -- end
+        local auth_result = auth(config)
+        if auth_result ~= "success" then
+            Util.error("Authentication failed: " .. auth_result)
+        end
 
         build_package()
 
@@ -108,7 +108,7 @@ function M.args()
         "/extendGoToSymbolInWorkspace:" .. tostring(Config.lsp.extendGoToSymbolInWorkspace),
         "/extendGoToSymbolInWorkspaceResultLimit:" .. tostring(Config.lsp.extendGoToSymbolInWorkspaceResultLimit),
         "/extendGoToSymbolInWorkspaceIncludeSymbolFiles:"
-            .. tostring(Config.lsp.extendGoToSymbolInWorkspaceIncludeSymbolFiles),
+        .. tostring(Config.lsp.extendGoToSymbolInWorkspaceIncludeSymbolFiles),
         "/startDebugging",
         "/projectRoot:" .. ws.root,
     }
