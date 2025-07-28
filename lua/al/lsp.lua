@@ -112,7 +112,7 @@ end
 
 function M.cmd()
     return {
-        M.find_lsp_path(Config.vscodeExtensionsPath),
+        M.find_lsp_path(Config.vscodeExtensionsPath, false),
         "/telemetryLevel:" .. Config.lsp.telemetryLevel,
         "/browser:" .. Config.lsp.browser,
         "/inlayHintsParameterNames:" .. tostring(Config.lsp.inlayHintsParameterNames),
@@ -126,7 +126,7 @@ function M.cmd()
     }
 end
 
-function M.find_lsp_path(basePath)
+function M.find_lsp_path(basePath, is_dll)
     local path = ""
     local os_name = vim.loop.os_uname().sysname:lower()
     for filename in io.popen('dir "' .. vim.fn.expand(basePath) .. '" /b /ad'):lines() do
@@ -134,10 +134,18 @@ function M.find_lsp_path(basePath)
         if match then
             Config.language_extension_version = match
             path = vim.fn.expand(basePath) .. (basePath:sub(-#basePath) == "\\" and "\\" or "") .. filename
-            if os_name:match("windows") then
-                path = path .. "\\bin\\win32\\Microsoft.Dynamics.Nav.EditorServices.Host.exe"
+            if is_dll then
+                if os_name:match("windows") then
+                    path = path .. "\\bin\\win32\\Microsoft.Dynamics.Nav.EditorServices.Host.dll"
+                else
+                    path = path .. "/bin/linux/Microsoft.Dynamics.Nav.EditorServices.Host.dll"
+                end
             else
-                path = path .. "/bin/linux/Microsoft.Dynamics.Nav.EditorServices.Host"
+                if os_name:match("windows") then
+                    path = path .. "\\bin\\win32\\Microsoft.Dynamics.Nav.EditorServices.Host.exe"
+                else
+                    path = path .. "/bin/linux/Microsoft.Dynamics.Nav.EditorServices.Host"
+                end
             end
         end
     end
