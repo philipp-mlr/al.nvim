@@ -27,8 +27,8 @@
           src = self;
           dependencies = with pkgs.vimPlugins; [
             nui-nvim
-            nvim-dap
             nvim-nio
+            nvim-dap
             nvim-dap-virtual-text
             noice-nvim
           ];
