@@ -129,26 +129,42 @@ end
 function M.find_lsp_path(basePath, is_dll)
     local path = ""
     local os_name = vim.loop.os_uname().sysname:lower()
-    for filename in io.popen('dir "' .. vim.fn.expand(basePath) .. '" /b /ad'):lines() do
-        local match = filename:match("ms%-dynamics%-smb.al%-(.+)")
-        if match then
-            Config.language_extension_version = match
-            path = vim.fn.expand(basePath) .. (basePath:sub(-#basePath) == "\\" and "\\" or "") .. filename
-            if is_dll then
-                if os_name:match("windows") then
-                    path = path .. "\\bin\\win32\\Microsoft.Dynamics.Nav.EditorServices.Host.dll"
-                else
-                    path = path .. "/bin/linux/Microsoft.Dynamics.Nav.EditorServices.Host.dll"
-                end
-            else
-                if os_name:match("windows") then
-                    path = path .. "\\bin\\win32\\Microsoft.Dynamics.Nav.EditorServices.Host.exe"
-                else
-                    path = path .. "/bin/linux/Microsoft.Dynamics.Nav.EditorServices.Host"
-                end
+    local sep = os_name:match("windows") and "\\" or "/"
+    local binary_folder = sep .. "bin" .. sep .. (os_name:match("windows") and "win32" or "linux") .. sep
+
+    -- Expand ~ to full path
+    local expanded_base = vim.fn.expand(basePath)
+
+    local handle, err = vim.loop.fs_scandir(expanded_base)
+    if not handle then
+        error("Failed to scan directory: " .. err)
+    end
+
+    while true do
+        local filename, t = vim.loop.fs_scandir_next(handle)
+        if not filename then
+            break
+        end
+        if t == "directory" then
+            local match = filename:match("ms%-dynamics%-smb.al%-(.+)")
+            if match then
+                Config.language_extension_version = match
+                path = expanded_base
+                    .. (expanded_base:sub(-1) == sep and "" or sep)
+                    .. filename
+                    .. binary_folder
+                    .. (
+                        is_dll and "Microsoft.Dynamics.Nav.EditorServices.Host.dll"
+                        or "Microsoft.Dynamics.Nav.EditorServices.Host"
+                    )
             end
         end
     end
+
+    if path == "" then
+        error("No matching AL extension found in: " .. expanded_base)
+    end
+
     return path
 end
 
