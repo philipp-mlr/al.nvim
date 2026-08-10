@@ -36,13 +36,14 @@ local build_package = function()
     Util.info("Started creating package...")
     client:request("al/createPackage", params, function(err, result)
         if not result then
+            Util.error("Failed creating AL package\r\n" .. vim.inspect(err))
             coroutine.resume(co)
             return
         end
         if result.success then
             Util.info("Success: The package is created")
         else
-            Util.error("Failed creating AL package\r\n" .. vim.inspect(err))
+            Util.error("Failed creating AL package\r\n" .. vim.inspect(result))
         end
         coroutine.resume(co)
     end)
