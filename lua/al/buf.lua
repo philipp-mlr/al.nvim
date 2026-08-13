@@ -50,6 +50,16 @@ M.on_attach = function(client, buf)
 
     Lsp.attach(client)
 
+    -- Neovim's built-in tagfunc (which backs <C-]>) is synchronous with a
+    -- hardcoded 1000ms timeout, but the AL server's first go-to-definition
+    -- lookup for a symbol can take several seconds. Bind <C-]> directly to
+    -- the async go_to_definition instead.
+    vim.keymap.set("n", "<C-]>", Lsp.go_to_definition, {
+        buffer = buf,
+        silent = true,
+        desc = "al: Go to definition",
+    })
+
     if not require("al.multiproject").workspace_root() and not Workspace.is_active(client, buf) then
         Workspace.set_active(client, buf)
     end
