@@ -640,6 +640,16 @@ local function _register_notification_handlers()
                 end
                 return response
             end
+
+            -- Guard against the AL server occasionally publishing a
+            -- diagnostic with a schemeless uri (a bare filesystem path),
+            -- which crashes Neovim's default handler on vim.uri_to_fname.
+            client.handlers["textDocument/publishDiagnostics"] = function(err, result, ctx, config)
+                if result and type(result.uri) == "string" and not result.uri:match("^%a[%w+.-]*://") then
+                    result.uri = vim.uri_from_fname(result.uri)
+                end
+                return vim.lsp.diagnostic.on_publish_diagnostics(err, result, ctx, config)
+            end
         end,
     })
 end
