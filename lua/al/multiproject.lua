@@ -94,6 +94,28 @@ local function read_file_async(path)
     return data
 end
 
+--- Extract al.* settings from a .code-workspace file's own top-level
+--- `settings` object (VS Code convention: flat "al.xxx" keys), converting to
+--- the bare alResourceConfigurationSettings key names the AL server expects.
+---
+--- Values are passed through as-is: the AL compiler receives settings like
+--- al.ruleSetPath completely unsubstituted, so "${workspaceFolder}" must
+--- remain a literal string, not be resolved to an actual path here.
+---@param ws_settings table  raw workspace.settings from code-workspace.nvim
+---@return table
+local function _al_settings_from_workspace(ws_settings)
+    local result = {}
+    for key, value in pairs(ws_settings or {}) do
+        local al_key = key:match("^al%.(.+)$")
+        if al_key then
+            result[al_key] = value
+        end
+    end
+    return result
+end
+-- Exposed for tests only; not part of the public API.
+M._al_settings_from_workspace = _al_settings_from_workspace
+
 --- Load and cache app.json + settings for every workspace folder.
 --- Must be called inside a nio.run() task.
 ---@param ws table  workspace object from code-workspace.nvim
@@ -130,8 +152,13 @@ local function _load_manifests(ws)
                 end
             end
 
-            -- Merge: global defaults < per-project settings
-            local merged_settings = vim.tbl_deep_extend("force", {}, global_settings, proj_al_settings)
+            -- Workspace-file-level al.* settings (e.g. al.ruleSetPath), applied
+            -- to every folder unless overridden below.
+            local ws_al_settings = _al_settings_from_workspace(ws.settings)
+
+            -- Merge: global defaults < workspace-file settings < per-project settings
+            local merged_settings =
+                vim.tbl_deep_extend("force", {}, global_settings, ws_al_settings, proj_al_settings)
 
             _manifests[folder_norm] = {
                 id = parsed.id or "",
@@ -246,6 +273,33 @@ local function _build_set_active_request(folder_norm, folder_name, folder_index,
             activeWorkspaceClosure = vim.tbl_map(server_path_for, closure_data.closure),
         },
     }
+end
+
+--- Send workspace/didChangeConfiguration for the active folder itself. Must
+--- be sent BEFORE al/setActiveWorkspace: the server resolves settings like
+--- ruleSetPath while processing setActiveWorkspace, so al/setActiveWorkspace's
+--- own embedded settings alone are not enough, and sending the correction
+--- afterward is one request too late.
+---
+--- Also updates client.settings directly, since Neovim's default
+--- workspace/configuration handler reads from it (not from the
+--- didChangeConfiguration payload).
+---@param client vim.lsp.Client
+---@param active_folder_norm string
+local function _send_active_folder_notification(client, active_folder_norm)
+    local manifest = _manifests[active_folder_norm]
+    if not manifest then
+        return
+    end
+    local settings = {
+        workspacePath = server_path_for(active_folder_norm),
+        alResourceConfigurationSettings = manifest.settings,
+        setActiveWorkspace = true,
+        expectedProjectReferenceDefinitions = {},
+        activeWorkspaceClosure = {},
+    }
+    client.settings = vim.tbl_deep_extend("force", client.settings or {}, settings, { al = manifest.settings })
+    client:notify("workspace/didChangeConfiguration", { settings = settings })
 end
 
 --- Send workspace/didChangeConfiguration for every dependency folder in the closure.
@@ -423,11 +477,13 @@ local function _switch_active_workspace(bufnr)
 
     local closure_data = _compute_closure(folder_norm)
 
+    -- Must happen before al/setActiveWorkspace (see function doc comment).
+    _send_active_folder_notification(client, folder_norm)
+
     -- Install a one-shot al/activeProjectLoaded handler that sends dep notifications
     -- and then restores the default nil-return handler.
     local prev_handler = client.handlers["al/activeProjectLoaded"]
     client.handlers["al/activeProjectLoaded"] = function(err, result, ctx, cfg)
-        -- Send dependency folder notifications before acking
         _send_dep_notifications(client, folder_norm, closure_data)
         -- Restore previous handler
         client.handlers["al/activeProjectLoaded"] = prev_handler
@@ -545,6 +601,45 @@ local function _register_notification_handlers()
                     end
                 end
             end
+
+            -- Scope-aware workspace/configuration handler: Neovim's built-in
+            -- default ignores each item's scopeUri and always returns the
+            -- single static client.settings table, but the AL server queries
+            -- per-folder settings via scopeUri in multi-root workspaces.
+            -- Resolve scopeUri to the owning folder and serve its settings.
+            client.handlers["workspace/configuration"] = function(_, params, _, _)
+                if not params or not params.items then
+                    return {}
+                end
+                local response = {}
+                for _, item in ipairs(params.items) do
+                    local settings = client.settings
+                    if item.scopeUri then
+                        local ok, scope_path = pcall(function()
+                            return norm(vim.uri_to_fname(item.scopeUri))
+                        end)
+                        if ok then
+                            for folder_norm, manifest in pairs(_manifests) do
+                                local is_folder = scope_path == folder_norm
+                                    or scope_path:sub(1, #folder_norm + 1) == folder_norm .. "/"
+                                if is_folder then
+                                    settings =
+                                        { alResourceConfigurationSettings = manifest.settings, al = manifest.settings }
+                                    break
+                                end
+                            end
+                        end
+                    end
+                    local value = settings
+                    if item.section and item.section ~= "" then
+                        for key in item.section:gmatch("[^.]+") do
+                            value = type(value) == "table" and value[key] or nil
+                        end
+                    end
+                    table.insert(response, value == nil and vim.NIL or value)
+                end
+                return response
+            end
         end,
     })
 end
@@ -601,6 +696,16 @@ function M.on_workspace_loaded(ws)
     _active_folder = nil
     M._active_folder = nil
     State.clear_config()
+
+    -- The client's static settings are only sent once, at initialize --
+    -- before al/setActiveWorkspace ever runs for any folder. Seed
+    -- workspace-file al.* settings here so the first project analyzed
+    -- doesn't see only the generic defaults.
+    Config.workspace.alResourceConfigurationSettings = vim.tbl_deep_extend(
+        "force",
+        Config.workspace.alResourceConfigurationSettings or {},
+        _al_settings_from_workspace(ws.settings)
+    )
 
     -- Stop any existing per-project al_ls clients (started before WorkspaceLoaded
     -- fired, when workspace_root() was still nil and root_dir fell back to a
