@@ -49,11 +49,78 @@ end
 
 M.get_clients = vim.lsp.get_clients
 
+--- Strip trailing commas from JSONC (before a closing ] or }), string-aware
+--- so a string value containing ",}" or ",]" isn't mistaken for one.
+---@param text string
+---@return string
+local function strip_trailing_commas(text)
+    local out = {}
+    local len = #text
+    local i = 1
+    local in_string = false
+    -- Buffered comma + following whitespace, held back until the next
+    -- non-whitespace character reveals whether it's a real separator (flush)
+    -- or a trailing comma before ]/} (drop).
+    local pending_comma_ws = nil
+
+    local function flush_pending()
+        if pending_comma_ws then
+            out[#out + 1] = ","
+            out[#out + 1] = pending_comma_ws
+            pending_comma_ws = nil
+        end
+    end
+
+    while i <= len do
+        local c = text:sub(i, i)
+
+        if in_string then
+            flush_pending()
+            out[#out + 1] = c
+            if c == "\\" and i < len then
+                out[#out + 1] = text:sub(i + 1, i + 1)
+                i = i + 2
+            else
+                if c == '"' then
+                    in_string = false
+                end
+                i = i + 1
+            end
+        elseif c == '"' then
+            flush_pending()
+            in_string = true
+            out[#out + 1] = c
+            i = i + 1
+        elseif c == "," and not pending_comma_ws then
+            pending_comma_ws = ""
+            i = i + 1
+        elseif pending_comma_ws and c:match("%s") then
+            pending_comma_ws = pending_comma_ws .. c
+            i = i + 1
+        elseif pending_comma_ws and (c == "]" or c == "}") then
+            pending_comma_ws = nil
+            out[#out + 1] = c
+            i = i + 1
+        else
+            flush_pending()
+            out[#out + 1] = c
+            i = i + 1
+        end
+    end
+    flush_pending()
+
+    return table.concat(out)
+end
+
+--- Read and parse a JSON(C) file. Tolerates comments and trailing commas,
+--- common in hand-edited VS Code .vscode/*.json files like launch.json.
+---@param path string
+---@return table
 function M.read_json_file(path)
     local f = assert(io.open(path))
     local content = f:read("*a")
     f:close()
-    local table_content = vim.json.decode(content)
+    local table_content = vim.json.decode(strip_trailing_commas(content), { skip_comments = true })
     return table_content
 end
 

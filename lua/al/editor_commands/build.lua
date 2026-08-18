@@ -3,6 +3,17 @@ local Util = require("al.utils")
 local Workspace = require("al.workspace")
 local Lsp = require("al.lsp")
 
+--- Open the quickfix list with any ERROR-severity diagnostics, if there are
+--- any. al/createPackage's response has no error text of its own on
+--- failure; the actual compiler errors arrive via publishDiagnostics.
+local function show_error_diagnostics()
+    local errors = vim.diagnostic.get(nil, { severity = vim.diagnostic.severity.ERROR })
+    if #errors == 0 then
+        return
+    end
+    vim.diagnostic.setqflist({ title = "AL build errors", severity = vim.diagnostic.severity.ERROR })
+end
+
 local build_package = function()
     local co = coroutine.running()
     local fname = vim.api.nvim_buf_get_name(0)
@@ -36,13 +47,16 @@ local build_package = function()
     Util.info("Started creating package...")
     client:request("al/createPackage", params, function(err, result)
         if not result then
+            Util.error("Failed creating AL package\r\n" .. vim.inspect(err))
             coroutine.resume(co)
             return
         end
         if result.success then
             Util.info("Success: The package is created")
         else
-            Util.error("Failed creating AL package\r\n" .. vim.inspect(err))
+            Util.error("Failed creating AL package\r\n" .. vim.inspect(result))
+            -- Give diagnostics for the failed files a moment to arrive.
+            vim.defer_fn(show_error_diagnostics, 300)
         end
         coroutine.resume(co)
     end)
