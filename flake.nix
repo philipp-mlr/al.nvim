@@ -14,7 +14,7 @@
     ...
   }:
     flake-parts.lib.mkFlake {inherit inputs;} {
-      systems = ["x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" "x86_64-windows" "aarch64-windows"];
+      systems = ["x86_64-linux"];
 
       perSystem = {
         pkgs,
@@ -26,11 +26,10 @@
           version = "unstable";
           src = self;
           dependencies = with pkgs.vimPlugins; [
-            nui-nvim
             nvim-nio
             nvim-dap
             nvim-dap-virtual-text
-            noice-nvim
+            nvim-dap-ui
           ];
           nvimSkipModule = [
             "al.luasnippets.al.trigger"
