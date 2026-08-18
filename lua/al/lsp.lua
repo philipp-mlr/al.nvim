@@ -27,10 +27,29 @@ function M.attach(client)
 
     M.attached[client.id] = client.id
 
+    -- The AL server implements go-to-definition via a custom al/gotodefinition
+    -- method and never advertises definitionProvider (mirroring how VS
+    -- Code's AL extension registers its own DefinitionProvider client-side).
+    -- Already set in M.setup()'s on_init (early enough for _set_defaults'
+    -- tagfunc wiring); this is a harmless re-assertion for direct callers.
+    client.server_capabilities.definitionProvider = true
+
     -- The AL Language Server sends CompletionItem.label as {label: string}
     -- instead of a plain string. Normalize before any completion plugin sees it.
     local orig_request = client.request
     client.request = function(self, method, params, callback, ...)
+        if method == "textDocument/definition" and callback then
+            local body = {
+                configuration = nil,
+                browserInfo = {
+                    browser = Config.lsp.browser,
+                    incognito = Config.lsp.incognito,
+                },
+                environmentInfo = {},
+                textDocumentPositionParams = params,
+            }
+            return orig_request(self, "al/gotodefinition", body, callback, ...)
+        end
         if method == "textDocument/completion" and callback then
             local wrapped = function(err, result, ...)
                 if result then
@@ -142,6 +161,12 @@ function M.setup()
         end,
         single_file_support = true,
         settings = Config.workspace,
+        -- Must be set from on_init, not an LspAttach handler: Neovim's
+        -- lsp._set_defaults (tagfunc wiring for <C-]>) runs synchronously
+        -- in on_attach, before LspAttach fires.
+        on_init = function(client)
+            client.server_capabilities.definitionProvider = true
+        end,
         -- init_options = {
         --     logging = { level = "trace" },
         --     trace = { server = "verbose" },
