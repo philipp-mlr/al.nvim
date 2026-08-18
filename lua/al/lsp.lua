@@ -348,7 +348,7 @@ end
 M.get_client_for_buf = function(bufnr)
     local clients = Utils.get_clients({ bufnr = bufnr })
     clients = vim.tbl_filter(function(client)
-        return client and M.supports(client)
+        return client and M.supports(client) and not client:is_stopped()
     end, clients)
     local client = clients[1]
     return client
